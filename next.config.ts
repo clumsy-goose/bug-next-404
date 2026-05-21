@@ -44,58 +44,96 @@ type NextConfigWithLegacyTurbo = NextConfig & {
 
 const FALLBACK_APP_BASE_URL = 'https://app.opencreator.io'
 
-const PRODUCT_ROUTE_PREFIXES = [
-  'home',
-  'skills',
-  'projects',
-  'workflows',
-  'assets',
-  'developer/apikeys',
-  'canvas',
-  'credits',
-  'payment-redirect',
-  'auth-complete',
-  'sso-callback',
-  'custom-workflow',
-  'content-production',
-  'remotion',
-  'sign-in',
-  'sign-up',
-  'verify',
-  'tiktok/auth',
-  'youtube/auth',
-] as const
-
 const normalizeBaseUrl = (url: string) => url.replace(/\/$/, '')
 
 const getAppBaseUrl = () =>
   normalizeBaseUrl(process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || FALLBACK_APP_BASE_URL)
 
+/**
+ * 生成产品路由重定向规则。
+ * 利用 Next.js 的 :name(regex) 语法将多个前缀合并为正则交替（alternation），
+ * 将原 68 条规则压缩为 12 条，加上 template 的 2 条，总计 14 条（原 72 条）。
+ */
 const createProductRedirects = () => {
   const appBaseUrl = getAppBaseUrl()
 
-  return PRODUCT_ROUTE_PREFIXES.flatMap(prefix => [
+  // 单段路径前缀 — 可通过正则交替合并为一条规则（16 个前缀 → 4 条规则）
+  const simplePrefixes = [
+    'home', 'skills', 'projects', 'workflows', 'assets', 'canvas',
+    'credits', 'payment-redirect', 'auth-complete', 'sso-callback',
+    'custom-workflow', 'content-production', 'remotion',
+    'sign-in', 'sign-up', 'verify',
+  ] as const
+
+  const simplePattern = simplePrefixes.join('|')
+
+  return [
+    // ---- 单段前缀：4 条规则覆盖 16 个路径 ----
     {
-      source: `/:locale(en|zh)/${prefix}`,
-      destination: `${appBaseUrl}/:locale/${prefix}`,
+      source: `/:locale(en|zh)/:prefix(${simplePattern})`,
+      destination: `${appBaseUrl}/:locale/:prefix`,
       permanent: true,
     },
     {
-      source: `/:locale(en|zh)/${prefix}/:path*`,
-      destination: `${appBaseUrl}/:locale/${prefix}/:path*`,
+      source: `/:locale(en|zh)/:prefix(${simplePattern})/:path*`,
+      destination: `${appBaseUrl}/:locale/:prefix/:path*`,
       permanent: true,
     },
     {
-      source: `/${prefix}`,
-      destination: `${appBaseUrl}/${prefix}`,
+      source: `/:prefix(${simplePattern})`,
+      destination: `${appBaseUrl}/:prefix`,
       permanent: true,
     },
     {
-      source: `/${prefix}/:path*`,
-      destination: `${appBaseUrl}/${prefix}/:path*`,
+      source: `/:prefix(${simplePattern})/:path*`,
+      destination: `${appBaseUrl}/:prefix/:path*`,
       permanent: true,
     },
-  ])
+
+    // ---- developer/apikeys：含 / 的多段路径，单独 4 条规则 ----
+    {
+      source: '/:locale(en|zh)/developer/apikeys',
+      destination: `${appBaseUrl}/:locale/developer/apikeys`,
+      permanent: true,
+    },
+    {
+      source: '/:locale(en|zh)/developer/apikeys/:path*',
+      destination: `${appBaseUrl}/:locale/developer/apikeys/:path*`,
+      permanent: true,
+    },
+    {
+      source: '/developer/apikeys',
+      destination: `${appBaseUrl}/developer/apikeys`,
+      permanent: true,
+    },
+    {
+      source: '/developer/apikeys/:path*',
+      destination: `${appBaseUrl}/developer/apikeys/:path*`,
+      permanent: true,
+    },
+
+    // ---- tiktok/auth & youtube/auth：共享 :platform 参数，4 条规则 ----
+    {
+      source: '/:locale(en|zh)/:platform(tiktok|youtube)/auth',
+      destination: `${appBaseUrl}/:locale/:platform/auth`,
+      permanent: true,
+    },
+    {
+      source: '/:locale(en|zh)/:platform(tiktok|youtube)/auth/:path*',
+      destination: `${appBaseUrl}/:locale/:platform/auth/:path*`,
+      permanent: true,
+    },
+    {
+      source: '/:platform(tiktok|youtube)/auth',
+      destination: `${appBaseUrl}/:platform/auth`,
+      permanent: true,
+    },
+    {
+      source: '/:platform(tiktok|youtube)/auth/:path*',
+      destination: `${appBaseUrl}/:platform/auth/:path*`,
+      permanent: true,
+    },
+  ]
 }
 
 const migrateLegacyTurboConfig = (config: NextConfig): NextConfig => {
@@ -209,23 +247,14 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       ...createProductRedirects(),
+      // ---- template/templates 合并为 2 条规则 ----
       {
-        source: '/:locale(en|zh)/template',
+        source: '/:locale(en|zh)/:t(template|templates)',
         destination: '/:locale',
         permanent: true,
       },
       {
-        source: '/:locale(en|zh)/templates',
-        destination: '/:locale',
-        permanent: true,
-      },
-      {
-        source: '/template',
-        destination: '/',
-        permanent: true,
-      },
-      {
-        source: '/templates',
+        source: '/:t(template|templates)',
         destination: '/',
         permanent: true,
       },
